@@ -124,7 +124,9 @@ def fitness_func(df,entries,visitor):
     func,test_values=func_with_minimum_distance(df,reached_functions)
     # Values to reach the next 'good' function from the solver
     values=func.values
+    print("Solutions: ", values)
     fitness=func.distance
+    print("Distance: ", fitness)
     
     # If it reached the last function
     if func.distance==1:

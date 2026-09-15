@@ -4,10 +4,12 @@ from angr.sim_type import SimTypeFunction, SimTypePointer
 from angr.errors import SimUnsatError
 from math import ceil
 from logging import warning
+import pyghidra
 
 class SolverUtility:
     def __init__(self, project):
         self.project = project
+        self.SIMBOLIC_BUFFER_SIZE = 16
 
     # Get concrete value
     def _concrete_value(self,symb_val):
@@ -91,13 +93,64 @@ class SolverUtility:
 
         return solutions
 
+    def type_inference(self, binary_path, function_name):
+        pyghidra.start()
+        data_types = []
+        print("Type inference for function: ", function_name)
+        
+        with pyghidra.open_program(binary_path) as flat_api:
+            program = flat_api.getCurrentProgram()
+            from ghidra.app.decompiler import DecompInterface
+            from ghidra.util.task import ConsoleTaskMonitor
+
+            decomp = DecompInterface()
+            decomp.openProgram(program)
+            
+            fm = program.getFunctionManager()
+            funcs = fm.getFunctions(True)
+            target_func = next((f for f in funcs if f.getName() == function_name), None)
+
+            if not target_func:
+                print(f"[!] Function {function_name} not found.")
+                return
+
+            results = decomp.decompileFunction(target_func, 30, ConsoleTaskMonitor())
+            high_func = results.getHighFunction()
+
+            if high_func:
+                proto = high_func.getFunctionPrototype()
+                num_params = proto.getNumParams()
+
+                for i in range(num_params):
+                    param = proto.getParam(i)
+                    data_type = param.getDataType().getDisplayName().lower()
+                    data_types.append(data_type)
+                    print(f"  [+] Param {i}: ({data_type})")
+        return data_types
+
     def _explore_paths(self, find, n, input_type,source, binary,num_steps=None,api_list=[],visitor=None):
         claripy_contstraints=None
         symbolic_par=None
         input_arg = input_type.args
         extras = {sim_options.REVERSE_MEMORY_NAME_MAP, sim_options.TRACK_ACTION_HISTORY}
 
+        # SEMBRA CHE FIND (FUNZIONE) E INPUT_TYPE (NUMERO ARGOMENTI) NON SIANO ACCOPPIATI NEL MODO CORRETTO
+        print(find)
+        print("input_type =", repr(input_type))
+        print("input_type type =", type(input_type))
+        print("input_type.args =", repr(input_type.args))
+        print("input_type.args len =", len(input_type.args))
+
+        # find can be int or list
+        data_types = []
+        targets = find if isinstance(find, list) else [find]
+        for addr in targets:
+            func = self.project.kb.functions.get(addr)
+            if func is not None:
+                data_types = self.type_inference(binary_path=self.project.filename, function_name=func.name)
+        
         # Symbolic input variables
+        #args = [claripy.BVS("arg"+ str(i), self.SIMBOLIC_BUFFER_SIZE*8 if data_types is not None and "*" in data_types[i] else 8*8) for i,_ in enumerate(data_types)]
         args = [claripy.BVS("arg"+ str(i), size.size) for i,size in enumerate(input_arg)]
         # function does not have inputs and has not graph distance 0
         if not args and num_steps is None:

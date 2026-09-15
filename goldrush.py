@@ -17,6 +17,8 @@ from itertools import groupby
 from random import sample,choices
 from string import ascii_letters,digits
 from csv import writer
+import json
+import ast
 
 exported_list=['strlen', 'strcmp', 'strncpy','memset', 'memcpy']
 
@@ -100,6 +102,37 @@ def write_n_to_csv(n,csv_file):
         w = writer(file)
         w.writerow([n])
 
+def export_to_fuzzer(functions, distances):
+    fuzzer_config = []
+    for fn in functions.program_functions:
+        address = fn.address
+        if address in distances:
+            d_call = distances[address] - 1 # l'ultima funzione viene settata con distanza a 1 e non 0
+            is_objective = True if d_call == 0 else False
+            solutions = fn.values
+            # TODO: per gli interi (non ptr) devo convertirli in bit
+            decimal_solutions = [
+                [
+                    list(ast.literal_eval(item))
+                    for item in row
+                ]
+                for row in solutions
+            ]
+
+            fuzzer_config.append({
+                "name": fn.name,
+                "d_call": float(d_call),
+                "is_objective": is_objective,
+                "solutions": decimal_solutions
+            })
+    content = {
+        "binary_name": "test", # TODO: prenderlo dal comando goldrush eseguito
+        "arg_read_length": 17,          # TODO: che valore metto di default?
+        "targets": fuzzer_config
+    }
+    with open("targets.json", "w") as file:
+        json.dump(content, file, indent=3)
+
 def main(binary, rules_file, file_type, num_values, num_best_fit, num_generations, len_cache, steps, csv_file, debug_flag, tests=None):
     # Check if the binary file exists
     if not path.isfile(binary):
@@ -153,6 +186,9 @@ def main(binary, rules_file, file_type, num_values, num_best_fit, num_generation
             continue
         logging.warning('Values calculated')
 
+        export_to_fuzzer(function_data, distance)
+        return
+        # ----------------------------------------------------------------------------------
         # Separete exported functions from intenral functions
         exported_func,internal_func=separete_func(function_data,exported_list)
         l=[]
@@ -191,7 +227,7 @@ def main(binary, rules_file, file_type, num_values, num_best_fit, num_generation
 
             # Delete duplicate
             tests=del_duplicate(temp_tests,l)
-            logging.warning('New Tests: {new}\n'.format(new=tests))
+            print('New Tests: {new}\n'.format(new=tests))
             
             if tests:
                 i+=1

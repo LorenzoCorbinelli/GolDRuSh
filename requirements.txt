@@ -6,3 +6,4 @@ claripy
 matplotlib
 pandas
 pycparser<3
+pyghidra

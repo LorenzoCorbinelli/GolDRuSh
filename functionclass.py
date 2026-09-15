@@ -29,13 +29,13 @@ class ProgramFunction:
         self.type=prototype
 
     def print_info(self):
-        logging.warning(f"Function Name: {self.name}")
-        logging.warning(f"Function Address: {self.address}")
-        logging.warning(f"Function Type: {self.type}")
-        logging.warning(f"Distance: {self.distance}")
-        logging.warning(f"Values: {self.values}")
-        logging.warning(f"Symbolic parameters: {self.sympar}")
-        logging.warning(f'Regs: {self.reg}')
+        print(f"Function Name: {self.name}")
+        print(f"Function Address: {self.address}")
+        print(f"Function Type: {self.type}")
+        print(f"Distance: {self.distance}")
+        print(f"Values: {self.values}")
+        print(f"Symbolic parameters: {self.sympar}")
+        print(f'Regs: {self.reg}')
 
 
 class FunctionList:
