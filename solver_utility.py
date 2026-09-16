@@ -10,7 +10,7 @@ import function_type_store
 class SolverUtility:
     def __init__(self, project):
         self.project = project
-        self.SIMBOLIC_BUFFER_SIZE = 16
+        self.SYMBOLIC_BUFFER_SIZE = 16
 
     # Get concrete value
     def _concrete_value(self,symb_val):
@@ -137,9 +137,19 @@ class SolverUtility:
         extras = {sim_options.REVERSE_MEMORY_NAME_MAP, sim_options.TRACK_ACTION_HISTORY}
 
         data_types = self.type_inference(binary_path=self.project.filename, function_name=func.name)
-        
+
         # Symbolic input variables
-        args = [claripy.BVS("arg"+ str(i), self.SIMBOLIC_BUFFER_SIZE*8 if data_types is not None and "*" in data_types[i] else 8*8) for i,_ in enumerate(data_types)]
+        args = []
+        args_size = []
+        for i, size in enumerate(input_arg):
+            if data_types is not None and "*" in data_types[i]:
+                arg_size = self.SYMBOLIC_BUFFER_SIZE * 8
+            else:
+                arg_size = size.size
+            args_size.append(arg_size // 8)
+            arg = claripy.BVS("arg" + str(i), arg_size)
+            args.append(arg)
+        function_type_store.type_store.set_types_dimension(func.name, args_size)
 
         # function does not have inputs and has not graph distance 0
         if not args and num_steps is None:

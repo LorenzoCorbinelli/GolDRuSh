@@ -120,7 +120,8 @@ def export_to_fuzzer(binary_name, functions, distances):
                         parsed_row.append(list(val))
                     else:   # int, long, ...
                         int_val = int.from_bytes(val, byteorder='big')
-                        bit_array = [int(b) for b in bin(int_val)[2:]]
+                        type_dimension = function_type_store.type_store.get_type_dimension(fn.name, arg_idx)
+                        bit_array = [int(b) for b in f"{int_val:0{type_dimension}b}"]
                         parsed_row.append(bit_array)
                             
                 decimal_solutions.append(parsed_row)
