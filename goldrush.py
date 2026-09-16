@@ -103,7 +103,7 @@ def write_n_to_csv(n,csv_file):
         w = writer(file)
         w.writerow([n])
 
-def export_to_fuzzer(functions, distances):
+def export_to_fuzzer(binary_name, functions, distances):
     fuzzer_config = []
     for fn in functions.program_functions:
         address = fn.address
@@ -132,7 +132,7 @@ def export_to_fuzzer(functions, distances):
                 "solutions": decimal_solutions
             })
     content = {
-        "binary_name": "test", # TODO: prenderlo dal comando goldrush eseguito
+        "binary_name": f"{binary_name}",
         "arg_read_length": 17,          # TODO: che valore metto di default?
         "targets": fuzzer_config
     }
@@ -192,7 +192,7 @@ def main(binary, rules_file, file_type, num_values, num_best_fit, num_generation
             continue
         logging.warning('Values calculated')
 
-        export_to_fuzzer(function_data, distance)
+        export_to_fuzzer(binary, function_data, distance)
         return
         # ----------------------------------------------------------------------------------
         # Separete exported functions from intenral functions
