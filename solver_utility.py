@@ -5,6 +5,7 @@ from angr.errors import SimUnsatError
 from math import ceil
 from logging import warning
 import pyghidra
+import function_type_store
 
 class SolverUtility:
     def __init__(self, project):
@@ -126,6 +127,7 @@ class SolverUtility:
                     data_type = param.getDataType().getDisplayName().lower()
                     data_types.append(data_type)
                     print(f"  [+] Param {i}: ({data_type})")
+        function_type_store.type_store.save_signature(function_name, data_types)
         return data_types
 
     def _explore_paths(self, find, n, input_type,source, binary, func, num_steps=None,api_list=[],visitor=None):

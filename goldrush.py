@@ -19,6 +19,7 @@ from string import ascii_letters,digits
 from csv import writer
 import json
 import ast
+import function_type_store
 
 exported_list=['strlen', 'strcmp', 'strncpy','memset', 'memcpy']
 
@@ -109,15 +110,20 @@ def export_to_fuzzer(functions, distances):
         if address in distances:
             d_call = distances[address] - 1 # l'ultima funzione viene settata con distanza a 1 e non 0
             is_objective = True if d_call == 0 else False
-            solutions = fn.values
-            # TODO: per gli interi (non ptr) devo convertirli in bit
-            decimal_solutions = [
-                [
-                    list(ast.literal_eval(item))
-                    for item in row
-                ]
-                for row in solutions
-            ]
+            decimal_solutions = []
+            for row in fn.values:
+                parsed_row = []
+                for arg_idx, item in enumerate(row):
+                    val = ast.literal_eval(item)
+                    
+                    if function_type_store.type_store.is_pointer(fn.name, arg_idx):
+                        parsed_row.append(list(val))
+                    else:   # int, long, ...
+                        int_val = int.from_bytes(val, byteorder='big')
+                        bit_array = [int(b) for b in bin(int_val)[2:]]
+                        parsed_row.append(bit_array)
+                            
+                decimal_solutions.append(parsed_row)
 
             fuzzer_config.append({
                 "name": fn.name,
