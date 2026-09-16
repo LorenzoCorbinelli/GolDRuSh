@@ -128,30 +128,17 @@ class SolverUtility:
                     print(f"  [+] Param {i}: ({data_type})")
         return data_types
 
-    def _explore_paths(self, find, n, input_type,source, binary,num_steps=None,api_list=[],visitor=None):
+    def _explore_paths(self, find, n, input_type,source, binary, func, num_steps=None,api_list=[],visitor=None):
         claripy_contstraints=None
         symbolic_par=None
         input_arg = input_type.args
         extras = {sim_options.REVERSE_MEMORY_NAME_MAP, sim_options.TRACK_ACTION_HISTORY}
 
-        # SEMBRA CHE FIND (FUNZIONE) E INPUT_TYPE (NUMERO ARGOMENTI) NON SIANO ACCOPPIATI NEL MODO CORRETTO
-        print(find)
-        print("input_type =", repr(input_type))
-        print("input_type type =", type(input_type))
-        print("input_type.args =", repr(input_type.args))
-        print("input_type.args len =", len(input_type.args))
-
-        # find can be int or list
-        data_types = []
-        targets = find if isinstance(find, list) else [find]
-        for addr in targets:
-            func = self.project.kb.functions.get(addr)
-            if func is not None:
-                data_types = self.type_inference(binary_path=self.project.filename, function_name=func.name)
+        data_types = self.type_inference(binary_path=self.project.filename, function_name=func.name)
         
         # Symbolic input variables
-        #args = [claripy.BVS("arg"+ str(i), self.SIMBOLIC_BUFFER_SIZE*8 if data_types is not None and "*" in data_types[i] else 8*8) for i,_ in enumerate(data_types)]
-        args = [claripy.BVS("arg"+ str(i), size.size) for i,size in enumerate(input_arg)]
+        args = [claripy.BVS("arg"+ str(i), self.SIMBOLIC_BUFFER_SIZE*8 if data_types is not None and "*" in data_types[i] else 8*8) for i,_ in enumerate(data_types)]
+
         # function does not have inputs and has not graph distance 0
         if not args and num_steps is None:
             return True, None
@@ -209,8 +196,8 @@ class SolverUtility:
         return solutions, symbolic_par
     
 
-    def get_solver(self, target, n, input_type,source=None, binary=None,num_steps=None, visitor=None):
+    def get_solver(self, target, n, input_type, func, source=None, binary=None,num_steps=None, visitor=None):
         if num_steps is not None:
-            return self._explore_paths(target[0].address, n, input_type,source,binary,num_steps,api_list=target,visitor=visitor)
+            return self._explore_paths(target[0].address, n, input_type,source,binary, func, num_steps,api_list=target,visitor=visitor)
         else:
-            return self._explore_paths(target, n, input_type,source,binary)
+            return self._explore_paths(target, n, input_type,source,binary, func)
