@@ -6,6 +6,7 @@ from math import ceil
 from logging import warning
 import pyghidra
 import function_type_store
+import tempfile
 
 class SolverUtility:
     def __init__(self, project):
@@ -98,35 +99,51 @@ class SolverUtility:
         pyghidra.start()
         data_types = []
         print("Type inference for function: ", function_name)
-        
-        with pyghidra.open_program(binary_path) as flat_api:
-            program = flat_api.getCurrentProgram()
-            from ghidra.app.decompiler import DecompInterface
-            from ghidra.util.task import ConsoleTaskMonitor
+        with tempfile.TemporaryDirectory(prefix="ghidra_type_inference_") as tmpdir:
 
-            decomp = DecompInterface()
-            decomp.openProgram(program)
-            
-            fm = program.getFunctionManager()
-            funcs = fm.getFunctions(True)
-            target_func = next((f for f in funcs if f.getName() == function_name), None)
+            with pyghidra.open_program(
+                binary_path,
+                project_location=tmpdir,
+                project_name="analysis",
+                program_name="program",
+                analyze=True,
+            ) as flat_api:
 
-            if not target_func:
-                print(f"[!] Function {function_name} not found.")
-                return
+                program = flat_api.getCurrentProgram()
 
-            results = decomp.decompileFunction(target_func, 30, ConsoleTaskMonitor())
-            high_func = results.getHighFunction()
+                from ghidra.app.decompiler import DecompInterface
+                from ghidra.util.task import ConsoleTaskMonitor
 
-            if high_func:
-                proto = high_func.getFunctionPrototype()
-                num_params = proto.getNumParams()
+                decomp = DecompInterface()
+                decomp.openProgram(program)
 
-                for i in range(num_params):
-                    param = proto.getParam(i)
-                    data_type = param.getDataType().getDisplayName().lower()
-                    data_types.append(data_type)
-                    print(f"  [+] Param {i}: ({data_type})")
+                fm = program.getFunctionManager()
+
+                target_func = next(
+                    (f for f in fm.getFunctions(True)
+                    if f.getName() == function_name),
+                    None
+                )
+
+                if not target_func:
+                    print(f"[!] Function {function_name} not found.")
+                    return []
+
+                results = decomp.decompileFunction(target_func, 30, ConsoleTaskMonitor())
+                high_func = results.getHighFunction()
+
+                if high_func:
+                    proto = high_func.getFunctionPrototype()
+                    num_params = proto.getNumParams()
+
+                    for i in range(num_params):
+                        param = proto.getParam(i)
+                        data_type = param.getDataType().getDisplayName().lower()
+                        data_types.append(data_type)
+                        print(f"  [+] Param {i}: ({data_type})")
+
+                decomp.dispose()
+
         function_type_store.type_store.save_signature(function_name, data_types)
         return data_types
 
