@@ -20,6 +20,7 @@ from csv import writer
 import json
 import ast
 import function_type_store
+from math import inf
 
 exported_list=['strlen', 'strcmp', 'strncpy','memset', 'memcpy']
 
@@ -103,12 +104,11 @@ def write_n_to_csv(n,csv_file):
         w = writer(file)
         w.writerow([n])
 
-def export_to_fuzzer(binary_name, functions, distances):
+def export_to_fuzzer(binary_name, functions):
     fuzzer_config = []
     for fn in functions.program_functions:
-        address = fn.address
-        if address in distances:
-            d_call = distances[address] - 1 # l'ultima funzione viene settata con distanza a 1 e non 0
+        if fn.distance != inf:
+            d_call = fn.distance - 1 # l'ultima funzione viene settata con distanza a 1 e non 0
             is_objective = True if d_call == 0 else False
             decimal_solutions = []
             for row in fn.values:
@@ -192,8 +192,7 @@ def main(binary, rules_file, file_type, num_values, num_best_fit, num_generation
             logging.warning('Angr not able to calculate constraints or unsat result')
             continue
         logging.warning('Values calculated')
-
-        export_to_fuzzer(binary, function_data, distance)
+        export_to_fuzzer(binary, function_data)
         return
         # ----------------------------------------------------------------------------------
         # Separete exported functions from intenral functions
