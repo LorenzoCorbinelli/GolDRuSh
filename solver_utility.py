@@ -7,11 +7,13 @@ from logging import warning
 import pyghidra
 import function_type_store
 import tempfile
+import re
 
 class SolverUtility:
     def __init__(self, project):
         self.project = project
-        self.SYMBOLIC_BUFFER_SIZE = 16
+        self.SYMBOLIC_BUFFER_SIZE = 24
+        function_type_store.type_store.set_buffer_size(self.SYMBOLIC_BUFFER_SIZE)
 
     # Get concrete value
     def _concrete_value(self,symb_val):
@@ -65,21 +67,71 @@ class SolverUtility:
         c = SimTypeFunction(p, input_type.returnty)
 
         return self.project.factory.call_state(source, *y, prototype=c,add_options=extras)
+
+    def _constrained_bytes(self, solver, args):
+        # list of zeros for each argument
+        constrained = {
+            arg.args[0]: [0] * (arg.size() // 8)
+            for arg in args
+        }
+
+        arg_sizes = {
+            arg.args[0]: arg.size() // 8
+            for arg in args
+        }
+
+        arg_names = set(constrained)
+
+        # Constraints are of the form arg0_28_192[127:120]
+        pattern = re.compile(r'([A-Za-z_]\w*)\[(\d+):(\d+)\]')
+
+        for constraint in solver.constraints:
+            text = str(constraint)
+
+            for name, high, low in pattern.findall(text):
+                if name not in arg_names:
+                    continue
+
+                high = int(high)
+                low = int(low)
+
+                size_bytes = arg_sizes[name]
+
+                # Claripy indexes
+                first_byte = low // 8
+                last_byte = high // 8
+
+                # Index conversion
+                for byte in range(first_byte, last_byte + 1):
+                    buffer_byte = size_bytes - 1 - byte
+
+                    if 0 <= buffer_byte < size_bytes:
+                        constrained[name][buffer_byte] = 1
+
+        return constrained
     
-    def _get_solutions(self,solver,n,args):
+    def _get_solutions(self,solver,n,args, function_name):
         solutions=[]
+        temp = []
+        constrained = self._constrained_bytes(solver, args)
+        constrained_args = []
         try:
-            temp=[solver.eval_upto(args[i],n, cast_to=bytes) for i in range(len(args))]
+            for i in range(len(args)):
+                name = args[i].args[0]
+                constrained_args.append(constrained[name])
+                sol = solver.eval_upto(args[i],n, cast_to=bytes)
+                temp.append(sol)
             temp = [sublist for sublist in temp if sublist]
         except SimUnsatError:
             return None
         min_length=min(len(sublist) for sublist in temp)
         for i in range(min_length):
             solutions.append([repr(x[i]) for x in temp])
-        
+
+        function_type_store.type_store.save_constrained_bytes(function_name, constrained_args)
         return solutions
 
-    def _explore(self, sm, args, n):
+    def _explore(self, sm, args, n, function_name):
         
         num_paths=len(sm.found)
         paths = sm.found[:n] if num_paths > n else sm.found
@@ -87,7 +139,7 @@ class SolverUtility:
         solutions = []
         for i, path in enumerate(paths):
             s=path.solver
-            solutions.extend(self._get_solutions(s,ceil((n-i)/num_paths),args))
+            solutions.extend(self._get_solutions(s,ceil((n-i)/num_paths),args, function_name))
         
         solutions=[x for x in solutions if x is not None]
         if not solutions:
@@ -216,11 +268,11 @@ class SolverUtility:
                     return False, symbolic_par
             
             # Get solutions leading to reaching the api_address
-            solutions=self._get_solutions(solver,n,args)
+            solutions=self._get_solutions(solver,n,args, func.name)
             if solutions is None:
                 solutions= False
         else:
-            solutions = self._explore(sm,args, n)
+            solutions = self._explore(sm,args, n, func.name)
     
         return solutions, symbolic_par
     

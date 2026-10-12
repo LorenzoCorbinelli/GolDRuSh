@@ -126,15 +126,17 @@ def export_to_fuzzer(binary_name, functions):
                             
                 decimal_solutions.append(parsed_row)
 
+            constrained = function_type_store.type_store.get_constrained_bytes(fn.name)
             fuzzer_config.append({
                 "name": fn.name,
                 "d_call": float(d_call),
                 "is_objective": is_objective,
-                "solutions": decimal_solutions
+                "solutions": decimal_solutions,
+                "constrained": constrained
             })
     content = {
         "binary_name": f"{binary_name}",
-        "arg_read_length": 17,          # TODO: che valore metto di default?
+        "arg_read_length": function_type_store.type_store.get_buffer_size(),
         "targets": fuzzer_config
     }
     with open("targets.json", "w") as file:
