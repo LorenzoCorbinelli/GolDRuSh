@@ -87,7 +87,7 @@ class SolverUtility:
 
         for constraint in solver.constraints:
             text = str(constraint)
-
+            print(text)
             for name, high, low in pattern.findall(text):
                 if name not in arg_names:
                     continue
@@ -215,7 +215,7 @@ class SolverUtility:
                 arg_size = self.SYMBOLIC_BUFFER_SIZE * 8
             else:
                 arg_size = size.size
-            args_size.append(arg_size // 8)
+            args_size.append(arg_size)
             arg = claripy.BVS("arg" + str(i), arg_size)
             args.append(arg)
         function_type_store.type_store.set_types_dimension(func.name, args_size)
