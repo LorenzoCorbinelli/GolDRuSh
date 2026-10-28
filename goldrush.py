@@ -192,9 +192,9 @@ def main(binary, rules_file, file_type, num_values, num_best_fit, num_generation
         function_data.remove_functions_with_infinity_distance(visitor.api_list)
         function_data.print_function_info()
         if flag is None:
-            logging.warning('Angr not able to calculate constraints or unsat result')
+            print('Angr not able to calculate constraints or unsat result')
             continue
-        logging.warning('Values calculated')
+        print('Values calculated')
         export_to_fuzzer(binary, function_data)
         return
         # ----------------------------------------------------------------------------------

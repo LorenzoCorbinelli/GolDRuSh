@@ -1,6 +1,6 @@
 import claripy
 from angr import PointerWrapper, sim_options, SIM_PROCEDURES
-from angr.sim_type import SimTypeFunction, SimTypePointer
+from angr.sim_type import SimTypeFunction, SimTypePointer, SimTypeLongLong, parse_type
 from angr.errors import SimUnsatError
 from math import ceil
 from logging import warning
@@ -59,17 +59,29 @@ class SolverUtility:
 
         return symb_input    
 
-    def _create_call_state(self,args, input_type, source,extras):
-        y = [PointerWrapper(x, buffer=True) for x in args]
+    def _parse_type(self, t):
+        """Covert types ('char *', 'int') in the corresponding SimType"""
+        arch = self.project.arch
+        try:
+            st = parse_type(t)  # call to angr parse_type
+        except Exception:
+            st = SimTypePointer(SimTypeLongLong()) if "*" in t else SimTypeLongLong()
+        return st.with_arch(arch)
 
-        #Change inputs into pointer
-        p = [SimTypePointer(r) for r in input_type.args]
-        c = SimTypeFunction(p, input_type.returnty)
+    def _arg_types(self, input_type, args_types):
+        if args_types is None:
+            return list(input_type.args)
+        return [self._parse_type(t) for t in args_types]
 
-        return self.project.factory.call_state(source, *y, prototype=c,add_options=extras)
+    def _create_call_state(self, args, input_type, source, extras, args_types=None):
+        ptypes = self._arg_types(input_type, args_types)
+        y = [PointerWrapper(a, buffer=True) if isinstance(t, SimTypePointer) else a
+            for a, t in zip(args, ptypes)]
+        c = SimTypeFunction(ptypes, input_type.returnty).with_arch(self.project.arch)
+        return self.project.factory.call_state(source, *y, prototype=c, add_options=extras)
 
     def _constrained_bytes(self, solver, args):
-        # list of zeros for each argument
+        # initialized a list of zeros for each arg
         constrained = {
             arg.args[0]: [0] * (arg.size() // 8)
             for arg in args
@@ -82,32 +94,44 @@ class SolverUtility:
 
         arg_names = set(constrained)
 
-        # Constraints are of the form arg0_28_192[127:120]
-        pattern = re.compile(r'([A-Za-z_]\w*)\[(\d+):(\d+)\]')
+        # expressions like arg0_28_192[127:120]
+        slice_pattern = re.compile(
+            r'([A-Za-z_]\w*)\[(\d+):(\d+)\]'
+        )
 
         for constraint in solver.constraints:
             text = str(constraint)
-            print(text)
-            for name, high, low in pattern.findall(text):
-                if name not in arg_names:
+
+            # get constrained args
+            for name in arg_names:
+                if name not in text:
                     continue
 
-                high = int(high)
-                low = int(low)
+                # find slice
+                slices = slice_pattern.findall(text)
+                arg_slices = [
+                    (int(high), int(low))
+                    for var_name, high, low in slices
+                    if var_name == name
+                ]
 
+                if not arg_slices:
+                    # arg with no slice -> all its bytes are constrained
+                    constrained[name] = [1] * arg_sizes[name]
+                    continue
+
+                # convert slice indexes
                 size_bytes = arg_sizes[name]
 
-                # Claripy indexes
-                first_byte = low // 8
-                last_byte = high // 8
+                for high, low in arg_slices:
+                    first_byte = low // 8
+                    last_byte = high // 8
 
-                # Index conversion
-                for byte in range(first_byte, last_byte + 1):
-                    buffer_byte = size_bytes - 1 - byte
+                    for byte in range(first_byte, last_byte + 1):
+                        buffer_byte = size_bytes - 1 - byte
 
-                    if 0 <= buffer_byte < size_bytes:
-                        constrained[name][buffer_byte] = 1
-
+                        if 0 <= buffer_byte < size_bytes:
+                            constrained[name][buffer_byte] = 1
         return constrained
     
     def _get_solutions(self,solver,n,args, function_name):
@@ -211,10 +235,14 @@ class SolverUtility:
         args = []
         args_size = []
         for i, size in enumerate(input_arg):
-            if data_types is not None and "*" in data_types[i]:
-                arg_size = self.SYMBOLIC_BUFFER_SIZE * 8
+            if data_types is not None:
+                t = data_types[i]
+                if "*" in t:
+                    arg_size = self.SYMBOLIC_BUFFER_SIZE * 8
+                else:
+                    arg_size = self._parse_type(t).size      # es. int -> 32
             else:
-                arg_size = size.size
+                arg_size = size.size                          # nessun tipo di Ghidra: tipi di angr
             args_size.append(arg_size)
             arg = claripy.BVS("arg" + str(i), arg_size)
             args.append(arg)
@@ -233,7 +261,7 @@ class SolverUtility:
         if source is None:
             state=self.project.factory.entry_state(args=[binary]+args, add_options=extras)
         else:
-            state = self._create_call_state(args,input_type, source,extras)
+            state = self._create_call_state(args,input_type, source,extras, data_types)
 
         # Explore the program with symbolic execution
         sm = self.project.factory.simgr(state, save_unconstrained=True)
