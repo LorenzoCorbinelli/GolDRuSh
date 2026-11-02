@@ -1,0 +1,5 @@
+/target
+/solutions
+.fuzz_stdin
+/test
+test*
