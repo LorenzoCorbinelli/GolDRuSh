@@ -466,27 +466,29 @@ impl<EM, S: HasExecutions> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S
 impl<S> StateInitializer<S> for StagedDistanceFeedback {}
 
 #[derive(Debug)]
-struct VulnerabilityObjective {
+struct VulnerabilityObjective<'a> {
     name: Cow<'static, str>,
     strategy: FitnessStrategy,
+    binary_name: &'a String,
 }
 
-impl VulnerabilityObjective {
-    fn new(strategy: FitnessStrategy) -> Self {
+impl<'a> VulnerabilityObjective<'a> {
+    fn new(strategy: FitnessStrategy, binary_name: &'a String) -> Self {
         Self {
             name: Cow::Borrowed("vuln_objective"),
             strategy,
+            binary_name,
         }
     }
 }
 
-impl Named for VulnerabilityObjective {
+impl<'a> Named for VulnerabilityObjective<'a> {
     fn name(&self) -> &Cow<'static, str> {
         &self.name
     }
 }
 
-impl<EM, S: HasExecutions> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S> for VulnerabilityObjective {
+impl<'a, EM, S: HasExecutions> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S> for VulnerabilityObjective<'a> {
     fn is_interesting(
         &mut self,
         state: &mut S,
@@ -529,6 +531,8 @@ impl<EM, S: HasExecutions> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S
                         .open("./solutions/poc.txt")
                         .unwrap();
 
+                    writeln!(file, "========== {} ==========", self.binary_name).unwrap();
+                    writeln!(file, "Strategy  : {:?}", self.strategy).unwrap();
                     writeln!(file, "Target function: {}", target.name).unwrap();
                     writeln!(file, "Input: {:?}", args_to_strings(input)).unwrap();
                     
@@ -540,7 +544,7 @@ impl<EM, S: HasExecutions> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S
     }
 }
 
-impl<S> StateInitializer<S> for VulnerabilityObjective {}
+impl<'a, S> StateInitializer<S> for VulnerabilityObjective<'a> {}
 
 fn main() -> Result<(), Error> {
     let args: Vec<String> = std::env::args().collect();
@@ -709,7 +713,7 @@ fn main() -> Result<(), Error> {
 
     let last_fn_observer = LastFunctionObserver::new(exec_state.clone());
     let mut feedback = StagedDistanceFeedback::new(best_test.clone(), strategy);
-    let mut objective = VulnerabilityObjective::new(strategy);
+    let mut objective = VulnerabilityObjective::new(strategy, &config.binary_name);
 
     let mut state = StdState::new(
         StdRand::with_seed(current_nanos()),
@@ -800,8 +804,7 @@ fn main() -> Result<(), Error> {
             fs::create_dir_all("./solutions").unwrap();
             let mut file = OpenOptions::new()
                 .create(true)
-                .write(true)
-                .truncate(true)
+                .append(true)
                 .open("./solutions/quasi-poc.txt")
                 .unwrap();
 
@@ -809,6 +812,8 @@ fn main() -> Result<(), Error> {
                 .map(|a| format_captured_arg(a))
                 .collect();
             
+            writeln!(file, "========== {} ==========", config.binary_name).unwrap();
+            writeln!(file, "Strategy  : {:?}", strategy).unwrap();
             writeln!(file, "Best fitness : {:.4}", bt.fitness).unwrap();
             writeln!(file, "Last function    : {}", target.name).unwrap();
             writeln!(file, "Captured args: {:?}", arg_strings).unwrap();
