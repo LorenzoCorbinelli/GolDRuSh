@@ -6,7 +6,6 @@ use std::{
     time::{Duration, Instant},
     io::Write,
     fs::{self, OpenOptions},
-    env,
 };
 
 use serde::{Deserialize, Serialize};
@@ -23,7 +22,7 @@ use libafl::{
     observers::Observer,
     schedulers::RandScheduler,
     stages::mutational::StdMutationalStage,
-    state::{StdState, HasSolutions},
+    state::{StdState, HasSolutions, HasExecutions},
     Error, Evaluator,
 };
 
@@ -101,6 +100,12 @@ struct BestTest {
     input: Option<FuzzInput>,
     target: Option<TargetConfig>,
     captured_args: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FitnessStrategy {
+    Greedy,      // fitness with minimum distance
+    RoundRobin,
 }
 
 fn args_to_strings(input: &FuzzInput) -> Vec<String> {
@@ -292,7 +297,7 @@ fn distance_binary(target: &[String], value: &[String], constrained: &[Vec<u8>])
         .sum()
 }
 
-fn minimum_distance(input: &[Vec<u8>], solutions: &[Vec<Vec<u8>>], constrained: &[Vec<u8>]) -> usize {
+fn distance_greedy(input: &[Vec<u8>], solutions: &[Vec<Vec<u8>>], constrained: &[Vec<u8>]) -> usize {
     let input_bits = to_bit(input);
 
     solutions
@@ -305,7 +310,27 @@ fn minimum_distance(input: &[Vec<u8>], solutions: &[Vec<Vec<u8>>], constrained: 
         .unwrap_or(usize::MAX)
 }
 
-fn compute_fitness(last_hit: Option<&TargetConfig>, arg_bytes: &[Vec<u8>]) -> f64 {
+fn distance_round_robin(
+    input: &[Vec<u8>],
+    solutions: &[Vec<Vec<u8>>],
+    constrained: &[Vec<u8>],
+    executions: u64,
+) -> usize {
+    let num_sol = solutions.len();
+    if num_sol == 0 {
+        return usize::MAX;
+    }
+
+    let sol_idx = (executions as usize) % num_sol;
+
+    let input_bits = to_bit(input);
+    let solution = &solutions[sol_idx];
+    let solution_bits = to_bit(solution);
+
+    distance_binary(&solution_bits, &input_bits, constrained)
+}
+
+fn compute_fitness(last_hit: Option<&TargetConfig>, arg_bytes: &[Vec<u8>], executions: u64, strategy: FitnessStrategy,) -> f64 {
     let target = match last_hit {
         Some(t) => t,
         None => return f64::MAX,
@@ -313,7 +338,14 @@ fn compute_fitness(last_hit: Option<&TargetConfig>, arg_bytes: &[Vec<u8>]) -> f6
 
     let d_call = target.d_call;
 
-    let d_step = minimum_distance(arg_bytes, &target.solutions, &target.constrained);
+    let d_step = match strategy {
+        FitnessStrategy::Greedy => {
+            distance_greedy(arg_bytes, &target.solutions, &target.constrained)
+        }
+        FitnessStrategy::RoundRobin => {
+            distance_round_robin(arg_bytes, &target.solutions, &target.constrained, executions)
+        }
+    };
 
     let m = 1.0 - (1.0 / (d_step as f64 + 10.0).log10());
     d_call + m
@@ -363,14 +395,16 @@ struct StagedDistanceFeedback {
     name: Cow<'static, str>,
     best_fitness: f64,
     best_test_state: Rc<RefCell<BestTest>>,
+    strategy: FitnessStrategy,
 }
 
 impl StagedDistanceFeedback {
-    fn new(best_test_state: Rc<RefCell<BestTest>>) -> Self {
+    fn new(best_test_state: Rc<RefCell<BestTest>>, strategy: FitnessStrategy) -> Self {
         Self {
             name: Cow::Borrowed("staged_distance"),
             best_fitness: f64::MAX,
             best_test_state,
+            strategy,
         }
     }
 }
@@ -381,10 +415,10 @@ impl Named for StagedDistanceFeedback {
     }
 }
 
-impl<EM, S> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S> for StagedDistanceFeedback {
+impl<EM, S: HasExecutions> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S> for StagedDistanceFeedback {
     fn is_interesting(
         &mut self,
-        _state: &mut S,
+        state: &mut S,
         _manager: &mut EM,
         input: &FuzzInput,
         observers: &(LastFunctionObserver, ()),
@@ -394,7 +428,9 @@ impl<EM, S> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S> for StagedDis
         let last_fn = exec.last_hit.as_ref();
         let arg_bytes = &exec.captured_args;
 
-        let fitness = compute_fitness(last_fn, arg_bytes);
+        let executions = *state.executions();
+
+        let fitness = compute_fitness(last_fn, arg_bytes, executions, self.strategy);
 
         if fitness < self.best_fitness {
             // new best test
@@ -432,12 +468,14 @@ impl<S> StateInitializer<S> for StagedDistanceFeedback {}
 #[derive(Debug)]
 struct VulnerabilityObjective {
     name: Cow<'static, str>,
+    strategy: FitnessStrategy,
 }
 
 impl VulnerabilityObjective {
-    fn new() -> Self {
+    fn new(strategy: FitnessStrategy) -> Self {
         Self {
             name: Cow::Borrowed("vuln_objective"),
+            strategy,
         }
     }
 }
@@ -448,10 +486,10 @@ impl Named for VulnerabilityObjective {
     }
 }
 
-impl<EM, S> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S> for VulnerabilityObjective {
+impl<EM, S: HasExecutions> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S> for VulnerabilityObjective {
     fn is_interesting(
         &mut self,
-        _state: &mut S,
+        state: &mut S,
         _manager: &mut EM,
         input: &FuzzInput,
         observers: &(LastFunctionObserver, ()),
@@ -463,7 +501,15 @@ impl<EM, S> Feedback<EM, FuzzInput, (LastFunctionObserver, ()), S> for Vulnerabi
         // take last hit function
         if let Some(target) = exec.last_hit.as_ref() {
             if target.is_objective {
-                let d_step = minimum_distance(arg_bytes, &target.solutions, &target.constrained) as f64;
+                let executions = *state.executions();
+                let d_step = match self.strategy {
+                    FitnessStrategy::Greedy => {
+                        distance_greedy(arg_bytes, &target.solutions, &target.constrained) as f64
+                    }
+                    FitnessStrategy::RoundRobin => {
+                        distance_round_robin(arg_bytes, &target.solutions, &target.constrained, executions) as f64
+                    }
+                };
                 if d_step == 0.0 {
                     let arg_strings: Vec<String> = arg_bytes
                         .iter()
@@ -499,7 +545,24 @@ impl<S> StateInitializer<S> for VulnerabilityObjective {}
 fn main() -> Result<(), Error> {
     let args: Vec<String> = std::env::args().collect();
     let timeout_secs: u64 = args.iter().skip(1).find_map(|a| a.parse().ok()).unwrap_or(3600);
-    println!("[+] Fuzzing with timeout of {} seconds...", timeout_secs);
+    let strategy = args
+        .iter()
+        .enumerate()
+        .find_map(|(i, arg)| {
+            if arg == "--strategy" || arg == "-s" {
+                args.get(i + 1).map(|v| v.as_str())
+            } else if let Some(val) = arg.strip_prefix("--strategy=") {
+                Some(val)
+            } else {
+                None
+            }
+        })
+        .map(|val| match val.to_lowercase().as_str() {
+            "round-robin" | "roundrobin" | "rr" => FitnessStrategy::RoundRobin,
+            _ => FitnessStrategy::Greedy,
+        })
+        .unwrap_or(FitnessStrategy::Greedy);
+    println!("[+] Fuzzing with timeout of {} seconds and strategy {:?}...", timeout_secs, strategy);
 
     let json_data =
         std::fs::read_to_string("targets.json").expect("Impossibile leggere targets.json");
@@ -645,8 +708,8 @@ fn main() -> Result<(), Error> {
     }));
 
     let last_fn_observer = LastFunctionObserver::new(exec_state.clone());
-    let mut feedback = StagedDistanceFeedback::new(best_test.clone());
-    let mut objective = VulnerabilityObjective::new();
+    let mut feedback = StagedDistanceFeedback::new(best_test.clone(), strategy);
+    let mut objective = VulnerabilityObjective::new(strategy);
 
     let mut state = StdState::new(
         StdRand::with_seed(current_nanos()),

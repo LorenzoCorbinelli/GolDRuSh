@@ -13,8 +13,8 @@ GID   := $(shell id -g)
 GOLDRUSH_ARGS ?=
 FUZZER_ARGS   ?=
 
-FUZZER_BIN := Fuzzer/target/release/fuzzer
-FUZZER_SRC := $(shell find Fuzzer/src -type f 2>/dev/null) Fuzzer/Cargo.toml $(wildcard Fuzzer/Cargo.lock) $(wildcard Fuzzer/build.rs)
+FUZZER_BIN := fuzzer/target/release/fuzzer
+FUZZER_SRC := $(shell find fuzzer/src -type f 2>/dev/null) fuzzer/Cargo.toml $(wildcard fuzzer/Cargo.lock) $(wildcard fuzzer/build.rs)
 
 DOCKER_RUN = docker run --rm -it \
 	-v $(CURDIR):/goldrush \
@@ -38,10 +38,10 @@ goldrush:
 
 # Compile only if the binary is missing or the sources are changed
 $(FUZZER_BIN): $(FUZZER_SRC)
-	$(DOCKER_RUN) bash -c "cd Fuzzer && cargo build --release"
+	$(DOCKER_RUN) bash -c "cd fuzzer && cargo build --release"
 
 fuzzer: $(FUZZER_BIN)
-	$(DOCKER_RUN) bash -c "cp targets.json Fuzzer/targets.json && cd Fuzzer && ./target/release/fuzzer $(FUZZER_ARGS)"
+	$(DOCKER_RUN) bash -c "cp targets.json fuzzer/targets.json && cd fuzzer && ./target/release/fuzzer $(FUZZER_ARGS)"
 
 run:
 	$(MAKE) goldrush
