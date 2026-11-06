@@ -8,6 +8,8 @@ import pyghidra
 import function_type_store
 import tempfile
 import re
+import json
+import os
 
 class SolverUtility:
     def __init__(self, project):
@@ -219,6 +221,17 @@ class SolverUtility:
                         print(f"  [+] Param {i}: ({data_type})")
 
                 decomp.dispose()
+
+        filename = "types.json"
+        if os.path.exists(filename):
+            with open(filename, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            data = {}
+
+        data[function_name] = data_types
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
 
         function_type_store.type_store.save_signature(function_name, data_types)
         return data_types
