@@ -53,6 +53,7 @@ fuzzer: $(FUZZER_BIN)
 
 run-exec:
 	$(MAKE) goldrush
+	$(DOCKER_RUN) bash -c "rm types.json"
 	$(MAKE) fuzzer
 
 run-lib:
