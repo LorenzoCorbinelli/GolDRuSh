@@ -58,7 +58,7 @@ run-exec:
 
 run-lib:
 	@BINARY=$$(cat $(HARNESS_CONFIG) | tr -d '\t\r\n '); \
-	OBJ=$${BINARY%.so}.o; \
+	OBJ=$${BINARY%.so}.a; \
 	$(DOCKER_RUN) bash -c "g++ -std=c++17 -no-pie -g -O1 harness.cpp $$OBJ -o $$BINARY -I."	# The final binary has the original name (it must match the one in targets.json)
 	$(MAKE) fuzzer
 
