@@ -589,7 +589,7 @@ fn main() -> Result<(), Error> {
         .modules(tuple_list!(SnapshotModule::new()))
         .build()?;
 
-    emulator.set_target_crash_handling(&TargetSignalHandling::RaiseSignal);
+    emulator.set_target_crash_handling(&TargetSignalHandling::ReturnToHarness);
     let qemu = emulator.qemu();
 
     let mut elf_buffer = Vec::new();
