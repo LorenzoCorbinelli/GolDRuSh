@@ -21,8 +21,11 @@ import json
 import ast
 import function_type_store
 from math import inf
+import os
+import shutil
 
 exported_list=['strlen', 'strcmp', 'strncpy','memset', 'memcpy']
+file_number: int = 1
 
 def create_logger(binary):
     #remove handlers (if not problem with angr logger)
@@ -140,10 +143,16 @@ def export_to_fuzzer(binary_name, functions):
         "arg_read_length": function_type_store.type_store.get_buffer_size(),
         "targets": fuzzer_config
     }
-    with open("targets.json", "w") as file:
+    global file_number
+    with open(f"targets/targets{file_number}.json", "w") as file:
         json.dump(content, file, indent=3)
+    file_number += 1
 
 def main(binary, rules_file, file_type, num_values, num_best_fit, num_generations, len_cache, steps, csv_file, debug_flag, tests=None):
+    dir = "targets"
+    if os.path.exists(dir):
+        shutil.rmtree(dir)
+    os.makedirs(dir)
     # Check if the binary file exists
     if not path.isfile(binary):
         logging.warning(f"Error: File '{binary}' does not exist.")
@@ -196,7 +205,7 @@ def main(binary, rules_file, file_type, num_values, num_best_fit, num_generation
             continue
         print('Values calculated')
         export_to_fuzzer(binary, function_data)
-        return
+        continue
         # ----------------------------------------------------------------------------------
         # Separete exported functions from intenral functions
         exported_func,internal_func=separete_func(function_data,exported_list)

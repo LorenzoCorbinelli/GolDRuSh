@@ -42,24 +42,36 @@ harness: goldrush
 	$(DOCKER_RUN) python3 generate_harness.py --lib ./$(BINARY) --types types.json --out harness.cpp
 	@echo "$(BINARY)" > $(HARNESS_CONFIG)	# saving the binary name
 	$(DOCKER_RUN) bash -c "mv $(BINARY) $(BINARY:.so=_original.so)"
-	$(DOCKER_RUN) bash -c "rm types.json"
+	$(DOCKER_RUN) bash -c "rm -f types.json"
 
 # Compile only if the binary is missing or the sources are changed
 $(FUZZER_BIN): $(FUZZER_SRC)
 	$(DOCKER_RUN) bash -c "cd fuzzer && cargo build --release"
 
 fuzzer: $(FUZZER_BIN)
-	$(DOCKER_RUN) bash -c "rm -rf fuzzer/test && mkdir -p fuzzer/test && cp -a test/. fuzzer/test/ && cp targets.json fuzzer/targets.json && cd fuzzer && ./target/release/fuzzer $(FUZZER_ARGS)"
+	$(DOCKER_RUN) bash -c "\
+		rm -rf fuzzer/test && mkdir -p fuzzer/test && cp -a test/. fuzzer/test/ && \
+		for target_file in targets/*.json; do \
+			if [ -f \"\$$target_file\" ]; then \
+				echo \"\n==================================================================\"; \
+				echo \"[*] Fuzzing with: \$$target_file\"; \
+				echo \"==================================================================\"; \
+				cp \"\$$target_file\" fuzzer/targets.json && \
+				(cd fuzzer && ./target/release/fuzzer $(FUZZER_ARGS)) ; \
+			else \
+				echo \"[!] No .json file in the targets directory\"; \
+			fi; \
+		done"
 
 run-exec:
 	$(MAKE) goldrush
-	$(DOCKER_RUN) bash -c "rm types.json"
+	$(DOCKER_RUN) bash -c "rm -f types.json"
 	$(MAKE) fuzzer
 
 run-lib:
 	@BINARY=$$(cat $(HARNESS_CONFIG) | tr -d '\t\r\n '); \
 	OBJ=$${BINARY%.so}.a; \
-	$(DOCKER_RUN) bash -c "g++ -std=c++17 -no-pie -g -O1 harness.cpp $$OBJ -o $$BINARY -I."	# The final binary has the original name (it must match the one in targets.json)
+	$(DOCKER_RUN) bash -c "g++ -std=c++17 -no-pie -g -O1 harness.cpp $$OBJ -o $$BINARY -I." # The final binary has the original name (it must match the one in targets.json)
 	$(MAKE) fuzzer
 
 clean-image:
